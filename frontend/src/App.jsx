@@ -5,6 +5,21 @@ import "./App.css";
 
 function App() {
   const [employees, setEmployees] = useState([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    Boolean(localStorage.getItem("token"))
+  );
+
+  const [userRole, setUserRole] = useState(
+    localStorage.getItem("role") || ""
+  );
+
+  const [loginForm, setLoginForm] = useState({
+    username: "",
+    password: "",
+  });
+
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -26,8 +41,50 @@ function App() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
-    loadEmployees();
-  }, [currentPage, pageSize, searchKeyword]);
+    if (isAuthenticated) {
+      loadEmployees();
+    }
+  }, [isAuthenticated, currentPage, pageSize, searchKeyword]);
+
+    async function handleLogin(event) {
+    event.preventDefault();
+    setLoginLoading(true);
+    setLoginError("");
+
+    try {
+      const response = await api.post("/auth/login", {
+        username: loginForm.username.trim(),
+        password: loginForm.password,
+      });
+
+      localStorage.setItem("token", response.data.token);
+      localStorage.setItem("role", response.data.role);
+      setUserRole(response.data.role);
+
+      setLoginForm({ username: "", password: "" });
+      setIsAuthenticated(true);
+    } catch (err) {
+      setLoginError(
+        err.response?.data?.message ||
+          "Login failed. Check your username and password."
+      );
+    } finally {
+      setLoginLoading(false);
+    }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("role");
+    setUserRole("");
+
+    setIsAuthenticated(false);
+    setEmployees([]);
+    setEditingEmployee(null);
+    setMessage("");
+    setError("");
+    setLoginError("");
+  }
 
   async function loadEmployees() {
     setLoading(true);
@@ -243,6 +300,51 @@ function App() {
     totalElements
   );
 
+  if (!isAuthenticated) {
+    return (
+      <div className="app">
+        <section className="panel">
+          <h2>Employee Management Login</h2>
+          <p>Sign in to access the employee dashboard.</p>
+
+          <form className="employee-form" onSubmit={handleLogin}>
+            <input
+              type="text"
+              placeholder="Username"
+              value={loginForm.username}
+              onChange={(event) =>
+                setLoginForm({
+                  ...loginForm,
+                  username: event.target.value,
+                })
+              }
+              required
+            />
+
+            <input
+              type="password"
+              placeholder="Password"
+              value={loginForm.password}
+              onChange={(event) =>
+                setLoginForm({
+                  ...loginForm,
+                  password: event.target.value,
+                })
+              }
+              required
+            />
+
+            <button type="submit" disabled={loginLoading}>
+              {loginLoading ? "Signing in..." : "Login"}
+            </button>
+          </form>
+
+          {loginError && <p className="error">{loginError}</p>}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="header">
@@ -251,9 +353,18 @@ function App() {
           <p>Manage your employee records in one place.</p>
         </div>
 
-        <button onClick={loadEmployees} disabled={loading}>
-          {loading ? "Loading..." : "Refresh"}
-        </button>
+        <div>
+          <button onClick={loadEmployees} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+
+          <button
+            onClick={handleLogout}
+            style={{ marginLeft: "10px" }}
+          >
+            Logout
+          </button>
+        </div>
       </header>
 
       <section className="summary">
@@ -263,52 +374,54 @@ function App() {
         <strong>{totalElements}</strong>
       </section>
 
-      <section className="panel">
-        <h2>Add Employee</h2>
+      {userRole === "ADMIN" && (
+        <section className="panel">
+          <h2>Add Employee</h2>
 
-        <form className="employee-form" onSubmit={handleSubmit}>
-          <input
-            name="name"
-            placeholder="Full name"
-            value={form.name}
-            onChange={handleChange}
-            required
-          />
+          <form className="employee-form" onSubmit={handleSubmit}>
+            <input
+              name="name"
+              placeholder="Full name"
+              value={form.name}
+              onChange={handleChange}
+              required
+            />
 
-          <input
-            name="email"
-            type="email"
-            placeholder="Email address"
-            value={form.email}
-            onChange={handleChange}
-            required
-          />
+            <input
+              name="email"
+              type="email"
+              placeholder="Email address"
+              value={form.email}
+              onChange={handleChange}
+              required
+            />
 
-          <input
-            name="department"
-            placeholder="Department"
-            value={form.department}
-            onChange={handleChange}
-            required
-          />
+            <input
+              name="department"
+              placeholder="Department"
+              value={form.department}
+              onChange={handleChange}
+              required
+            />
 
-          <input
-            name="salary"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="Salary"
-            value={form.salary}
-            onChange={handleChange}
-            required
-          />
+            <input
+              name="salary"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Salary"
+              value={form.salary}
+              onChange={handleChange}
+              required
+            />
 
-          <button type="submit">Add Employee</button>
-        </form>
+            <button type="submit">Add Employee</button>
+          </form>
 
-        {message && <p className="success">{message}</p>}
-        {error && <p className="error">{error}</p>}
-      </section>
+          {message && <p className="success">{message}</p>}
+          {error && <p className="error">{error}</p>}
+        </section>
+      )}
 
       {editingEmployee && (
         <section className="panel">
@@ -424,12 +537,16 @@ function App() {
                         })}
                       </td>
                       <td>
-                        <button onClick={() => handleEdit(employee)}>
-                          Edit
-                        </button>{" "}
-                        <button onClick={() => handleDelete(employee)}>
-                          Delete
-                        </button>
+                        {userRole === "ADMIN" && (
+                          <>
+                            <button onClick={() => handleEdit(employee)}>
+                              Edit
+                            </button>{" "}
+                            <button onClick={() => handleDelete(employee)}>
+                              Delete
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
